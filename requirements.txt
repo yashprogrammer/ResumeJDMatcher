@@ -1,0 +1,9 @@
+langchain
+langchain-openai
+langchain-core
+langchain-community
+langchain-groq
+langgraph
+llama-cloud-services
+langchain_google_genai
+chromadb

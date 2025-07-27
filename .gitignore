@@ -1,0 +1,47 @@
+# Environment variables
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+resume_proj
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# ChromaDB
+chromaDB/
+*.db
+*.sqlite
+
+# Data files (you may want to keep these private)
+data/
+*.pdf
+*.docx
+*.doc
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# API Keys and sensitive data
+*_api_key*
+credentials.json
+
+experiment.ipynb
