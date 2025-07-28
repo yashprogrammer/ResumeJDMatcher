@@ -61,6 +61,10 @@ class Resume(BaseModel):
     work_experience: list[str] = Field(description="Work experience details")
     education: str = Field(description="Educational background")
     projects: list[str] = Field(description="Projects worked on")
+    rank_reason: Optional[str] = Field(
+        default=None,
+        description="Specific reason for ranking this resume higher"
+    )
 
 
 class RankedResumes(BaseModel):
@@ -278,7 +282,7 @@ async def ranking_agent(state: State):
 Job Description: {state['jd']}
 
 Please rank the following resumes from most relevant (1) to least relevant based on the job description.
-Return only the ranking as a numbered list with name and email. Also include skills & work experience.
+Return only the ranking as a numbered list with name and email. Also include skills & work experience. and a clear reason for the ranking for each resume.
 """
     for i, resume in enumerate(resume_texts, 1):
         ranking_prompt += (
@@ -354,8 +358,12 @@ async def communicator_agent(state: State):
         for i, cand in enumerate(top_resumes, 1):
             part = (
                 f"{i}. Name: {cand['name']}\n   Email: {cand['email']}\n   Skills: {', '.join(cand['skills'])}\n   Work Experience:\n     - "
-                + "\n     - ".join(cand["work_experience"]) + "\n\n"
+                + "\n     - ".join(cand["work_experience"])
             )
+            # Add rank reason if available
+            if cand.get('rank_reason'):
+                part += f"\n   Ranking Reason: {cand['rank_reason']}"
+            part += "\n\n"
             body_parts.append(part)
         msg.attach(
             MIMEText(
