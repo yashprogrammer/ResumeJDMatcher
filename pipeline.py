@@ -394,15 +394,19 @@ async def communicator_agent(state: State):
 # ---------------------------------------------------------------------------
 #  Public helper to run the whole workflow sequentially
 # ---------------------------------------------------------------------------
-async def run_pipeline(resumes_dir_path: str, jd: str, emails: EmailConfig | None = None, clear_after_processing: bool = False):
+async def run_pipeline(resumes_dir_path: str, jd: str, emails: EmailConfig | None = None, clear_before_processing: bool = True):
     """Convenience wrapper that executes all steps and returns the final state.
     
     Args:
         resumes_dir_path: Path to directory containing resume PDFs
         jd: Job description text
         emails: Email configuration for notifications
-        clear_after_processing: If True, clears the vector store after successful processing
+        clear_before_processing: If True, clears the vector store before processing
     """
+    
+    if clear_before_processing:
+        print("Clearing vector store before processing...")
+        clear_vector_store()
 
     state: State = {
         "resumes_dir_path": resumes_dir_path,
@@ -426,10 +430,5 @@ async def run_pipeline(resumes_dir_path: str, jd: str, emails: EmailConfig | Non
         print(f"[MongoDB] Failed to store results: {e}")
 
     await communicator_agent(state)
-    
-    # Optionally clear vector store after successful processing
-    if clear_after_processing:
-        print("Clearing vector store after successful processing...")
-        clear_vector_store()
     
     return state 
