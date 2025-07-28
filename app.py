@@ -4,6 +4,9 @@ import asyncio
 
 import streamlit as st
 
+# MongoDB helpers
+from db_helper import fetch_all_results, get_pdf_bytes, insert_job_result
+
 from pipeline import (
     EmailConfig,
     extract_and_store_resumes,
@@ -47,6 +50,39 @@ with st.sidebar:
         clear_vector_store()
         st.success("Vector store cleared!")
         st.rerun()
+
+    st.markdown("---")
+
+    # ------------------------------------------------------------
+    # MongoDB – stored runs overview
+    # ------------------------------------------------------------
+    st.subheader("Past Runs (MongoDB)")
+    past_results = fetch_all_results()
+    if past_results:
+        for run in past_results:
+            jd_preview = run.get("jd", "")[:60].replace("\n", " ") + ("…" if len(run.get("jd", "")) > 60 else "")
+            with st.expander(f"JD: {jd_preview}"):
+                for idx, cand in enumerate(run.get("ranked_resumes", []), 1):
+                    st.markdown(
+                        f"**{idx}. {cand.get('name', 'Unknown')}**  \n"
+                        f"Email: {cand.get('email', 'N/A')}  \n"
+                        f"Skills: {', '.join(cand.get('skills', []))}  \n"
+                        f"Rank Reason: {cand.get('rank_reason', 'N/A')}"
+                    )
+
+                    pdf_id = cand.get("pdf_file_id")
+                    if pdf_id:
+                        pdf_bytes = get_pdf_bytes(pdf_id)
+                        if pdf_bytes:
+                            st.download_button(
+                                label=f"Download {cand.get('name', '')} Resume",
+                                data=pdf_bytes,
+                                file_name=f"{cand.get('name', 'resume')}.pdf",
+                                mime="application/pdf",
+                            )
+                st.markdown("---")
+    else:
+        st.write("No past runs stored in MongoDB.")
 
     st.markdown("---")
     st.subheader("Environment Keys")
@@ -114,6 +150,16 @@ if run_button:
             # 3️⃣ Rank via LLM
             status_placeholder.info("Ranking profiles …")
             state.update(await ranking_agent(state))
+            # 3b️⃣ Persist to MongoDB
+            try:
+                insert_job_result(
+                    jd=state["jd"],
+                    ranked_resumes=state.get("ranked_resumes", []),
+                    resume_file_path_mapping=state.get("resume_file_path_mapping", {}),
+                )
+                print("[MongoDB] Results stored successfully (Streamlit workflow)")
+            except Exception as e:
+                print(f"[MongoDB] Failed to store results from Streamlit workflow: {e}")
             progress_bar.progress(0.66)
 
             # 4️⃣ Send email

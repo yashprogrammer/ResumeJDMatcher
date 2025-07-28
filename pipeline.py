@@ -16,6 +16,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from llama_cloud_services import LlamaExtract
 from llama_cloud_services.extract import SourceText
 
+# MongoDB helper
+from db_helper import insert_job_result
+
 # ---------------------------------------------------------------------------
 #  Environment & model setup – executed once on import
 # ---------------------------------------------------------------------------
@@ -79,7 +82,7 @@ class State(TypedDict):
     text_resumes: List[str]
     matched_resumes: List
     ranked_resumes: List
-    no_match: bool
+    no_match: Optional[bool]
     emails: Optional[EmailConfig]
     resume_file_path_mapping: dict
 
@@ -410,6 +413,18 @@ async def run_pipeline(resumes_dir_path: str, jd: str, emails: EmailConfig | Non
     state.update(await extract_and_store_resumes(state))
     state.update(await comparison_agent(state))
     state.update(await ranking_agent(state))
+
+    # Persist results to MongoDB
+    try:
+        insert_job_result(
+            jd=state["jd"],
+            ranked_resumes=state.get("ranked_resumes", []),
+            resume_file_path_mapping=state.get("resume_file_path_mapping", {}),
+        )
+        print(f"[MongoDB] Results stored successfully")
+    except Exception as e:
+        print(f"[MongoDB] Failed to store results: {e}")
+
     await communicator_agent(state)
     
     # Optionally clear vector store after successful processing
