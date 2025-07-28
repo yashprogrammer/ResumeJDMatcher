@@ -7,5 +7,5 @@ langgraph
 llama-cloud-services
 langchain_google_genai
 chromadb
-
 streamlit>=1.35.0
+nest_asyncio

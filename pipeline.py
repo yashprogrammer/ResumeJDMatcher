@@ -84,8 +84,22 @@ class State(TypedDict):
 #  Llama-index extractors & structured LLM helpers
 # ---------------------------------------------------------------------------
 extractor = LlamaExtract()
-agent_resume = extractor.create_agent(name="resume-parser-pipeline", data_schema=Resume)
-agent_ranked = extractor.create_agent(name="ranked-resumes-pipeline", data_schema=RankedResumes)
+
+# Check if agents exist, create only if they don't
+def get_or_create_agent(extractor, name: str, data_schema):
+    """Get existing agent by name or create a new one if it doesn't exist."""
+    try:
+        # Try to get existing agent by name
+        agent = extractor.get_agent(name=name)
+        print(f"Using existing agent: {name}")
+        return agent
+    except Exception:
+        # Agent doesn't exist, create a new one
+        print(f"Creating new agent: {name}")
+        return extractor.create_agent(name=name, data_schema=data_schema)
+
+agent_resume = get_or_create_agent(extractor, "resume-parser-pipeline", Resume)
+agent_ranked = get_or_create_agent(extractor, "ranked-resumes-pipeline", RankedResumes)
 
 str_llm_groq = llm_groq.with_structured_output(RankedResumes)
 str_llm_openai = llm_openai.with_structured_output(RankedResumes)
@@ -108,6 +122,42 @@ def resume_to_text(resume: dict) -> str:
     for proj in resume["projects"]:
         text += f"- {proj}\n"
     return text.strip()
+
+
+def clear_vector_store():
+    """Clear all documents from the vector store. Use with caution!"""
+    global vectorstore
+    try:
+        # Delete the collection and recreate it
+        vectorstore.delete_collection()
+        print("Vector store cleared successfully")
+        
+        # Recreate the collection
+        vectorstore = Chroma(
+            collection_name="resume_collection",
+            embedding_function=embedding_model,
+            persist_directory="./chromaDB",
+        )
+        print("Vector store recreated")
+    except Exception as e:
+        print(f"Error clearing vector store: {e}")
+
+
+def get_vector_store_stats():
+    """Get statistics about the current vector store"""
+    try:
+        existing_docs = vectorstore.get()
+        if existing_docs and existing_docs.get('metadatas'):
+            emails = [meta.get('email', 'Unknown') for meta in existing_docs['metadatas']]
+            names = [meta.get('name', 'Unknown') for meta in existing_docs['metadatas']]
+            return {
+                "total_documents": len(emails),
+                "unique_names": list(set(names)),
+                "duplicate_count": len(emails) - len(set(emails))
+            }
+        return {"total_documents": 0, "unique_names": [], "duplicate_count": 0}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -156,23 +206,42 @@ async def extract_and_store_resumes(state: State):
         resumes.append(resume_info)
         resume_file_mapping[resume_info["name"]] = file_path
 
-    # Convert to plain-text docs for embeddings
+    # Check for existing resumes to prevent duplicates (using email as unique identifier)
+    existing_emails = set()
+    try:
+        # Get all existing documents from the vector store
+        existing_docs = vectorstore.get()
+        if existing_docs and existing_docs.get('metadatas'):
+            existing_emails = {meta.get('email') for meta in existing_docs['metadatas'] if meta.get('email')}
+    except Exception as e:
+        print(f"Warning: Could not check existing documents: {e}")
+
+    # Convert to plain-text docs for embeddings, filtering out duplicates
     docs = []
+    new_resumes = []
     for resume in resumes:
-        text = resume_to_text(resume)
-        doc = Document(
-            page_content=text,
-            metadata={
-                "name": resume["name"],
-                "email": resume["email"],
-                "skills": ", ".join(s.lower().strip() for s in resume["skills"]),
-            },
-        )
-        docs.append(doc)
+        if resume["email"] not in existing_emails:
+            text = resume_to_text(resume)
+            doc = Document(
+                page_content=text,
+                metadata={
+                    "name": resume["name"],
+                    "email": resume["email"],
+                    "skills": ", ".join(s.lower().strip() for s in resume["skills"]),
+                },
+            )
+            docs.append(doc)
+            new_resumes.append(resume)
+            print(f"Adding new resume: {resume['name']} ({resume['email']})")
+        else:
+            print(f"Skipping duplicate resume: {resume['name']} ({resume['email']}) - email already exists")
 
     if docs:
         vectorstore.add_documents(docs)
         vectorstore.persist()
+        print(f"Added {len(docs)} new resumes to vector store")
+    else:
+        print("No new resumes to add - all were duplicates")
 
     return {
         "text_resumes": [resume_to_text(r) for r in resumes],
@@ -314,8 +383,15 @@ async def communicator_agent(state: State):
 # ---------------------------------------------------------------------------
 #  Public helper to run the whole workflow sequentially
 # ---------------------------------------------------------------------------
-async def run_pipeline(resumes_dir_path: str, jd: str, emails: EmailConfig | None = None):
-    """Convenience wrapper that executes all steps and returns the final state."""
+async def run_pipeline(resumes_dir_path: str, jd: str, emails: EmailConfig | None = None, clear_after_processing: bool = False):
+    """Convenience wrapper that executes all steps and returns the final state.
+    
+    Args:
+        resumes_dir_path: Path to directory containing resume PDFs
+        jd: Job description text
+        emails: Email configuration for notifications
+        clear_after_processing: If True, clears the vector store after successful processing
+    """
 
     state: State = {
         "resumes_dir_path": resumes_dir_path,
@@ -327,4 +403,10 @@ async def run_pipeline(resumes_dir_path: str, jd: str, emails: EmailConfig | Non
     state.update(await comparison_agent(state))
     state.update(await ranking_agent(state))
     await communicator_agent(state)
+    
+    # Optionally clear vector store after successful processing
+    if clear_after_processing:
+        print("Clearing vector store after successful processing...")
+        clear_vector_store()
+    
     return state 

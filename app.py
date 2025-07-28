@@ -10,6 +10,8 @@ from pipeline import (
     comparison_agent,
     ranking_agent,
     communicator_agent,
+    clear_vector_store,
+    get_vector_store_stats,
 )
 
 st.set_page_config(page_title="Resume ↔ JD Matcher", page_icon="📄")
@@ -23,6 +25,28 @@ with st.sidebar:
     st.header("Configuration")
     ar_requestor_email = st.text_input("AR Requestor Email")
     recruiter_email = st.text_input("Recruiter Email")
+
+    st.markdown("---")
+    st.subheader("Vector Store Management")
+    
+    # Show vector store statistics
+    stats = get_vector_store_stats()
+    if "error" not in stats:
+        st.write(f"📊 Total Documents: {stats['total_documents']}")
+        st.write(f"👥 Unique Resumes: {len(stats['unique_names'])}")
+        if stats['duplicate_count'] > 0:
+            st.warning(f"⚠️ Duplicates Found: {stats['duplicate_count']}")
+        
+        if stats['unique_names']:
+            with st.expander("View Stored Resumes"):
+                for name in stats['unique_names']:
+                    st.write(f"• {name}")
+    
+    # Clear vector store button
+    if st.button("🗑️ Clear Vector Store", help="Remove all stored resumes"):
+        clear_vector_store()
+        st.success("Vector store cleared!")
+        st.rerun()
 
     st.markdown("---")
     st.subheader("Environment Keys")
@@ -100,7 +124,19 @@ if run_button:
             status_placeholder.success("✅ Workflow completed!")
             return state
 
-        final_state = asyncio.run(workflow())
+        # Use a persistent asyncio event loop across Streamlit reruns to avoid
+        # "Event loop is closed" errors that occur when the loop is closed while
+        # background tasks (e.g., httpx connection cleanup) are still pending.
+        if "async_loop" not in st.session_state:
+            st.session_state["async_loop"] = asyncio.new_event_loop()
+
+        loop = st.session_state["async_loop"]
+
+        # Make sure our loop is the current one for this thread.
+        asyncio.set_event_loop(loop)
+
+        # Run the workflow synchronously inside the persistent loop.
+        final_state = loop.run_until_complete(workflow())
 
         # --------------------------------------------------------
         # Display results
