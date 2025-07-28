@@ -176,6 +176,7 @@ with tab1:
                             st.markdown(
                                 f"**{i}. {cand['name']}**  \n"
                                 f":e-mail: {cand['email']}  \n"
+                                f"**Match Score**: {cand.get('matched_score', 'N/A')}  \n"
                                 f"**Skills**: {', '.join(cand['skills'])}  \n"
                                 f"**Work Experience**: \n- "
                                 + "\n- ".join(cand["work_experience"])
@@ -240,6 +241,12 @@ with tab2:
                                 skills = cand.get('skills', [])
                                 if skills:
                                     st.write(f"🔧 **Skills**: {', '.join(skills)}")
+
+                                # Match Score
+                                match_score = cand.get('matched_score')
+                                if match_score is not None:
+                                    # Score already comes in percentage format
+                                    st.write(f"🎯 **Match Score**: {match_score}")
                                 
                                 # Work Experience
                                 work_exp = cand.get('work_experience', [])

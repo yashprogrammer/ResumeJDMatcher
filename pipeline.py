@@ -64,6 +64,10 @@ class Resume(BaseModel):
     work_experience: list[str] = Field(description="Work experience details")
     education: str = Field(description="Educational background")
     projects: list[str] = Field(description="Projects worked on")
+    matched_score: Optional[float] = Field(
+        default=None,
+        description="Score of how well the resume matches the job description"
+    )
     rank_reason: Optional[str] = Field(
         default=None,
         description="Specific reason for ranking this resume higher"
@@ -259,8 +263,20 @@ async def extract_and_store_resumes(state: State):
 async def comparison_agent(state: State):
     """Vector-similarity search to get top 3 matches for the JD."""
     jd_text = state["jd"]
-    matched = vectorstore.similarity_search(jd_text, k=3)
-    return {"matched_resumes": matched}
+    # Retrieve documents together with their similarity score (lower is more similar)
+    matched_with_scores = vectorstore.similarity_search_with_score(jd_text, k=3)
+
+    matched_docs = []
+    for doc, score in matched_with_scores:
+        # Convert distance to similarity percentage. The score returned by Chroma is a distance
+        # (lower = more similar). We invert it so that higher values represent higher similarity.
+        # 0 distance  -> 100 % similarity
+        # 1 distance  ->   0 % similarity
+        percentage = round((1 - min(score, 1)) * 100, 1) if isinstance(score, (int, float)) else score
+        doc.metadata["match_score"] = f"{percentage}%"
+        matched_docs.append(doc)
+
+    return {"matched_resumes": matched_docs}
 
 
 async def ranking_agent(state: State):
@@ -271,15 +287,21 @@ async def ranking_agent(state: State):
 
     # Build prompt
     resume_texts = []
+    match_score_map = {}
     for doc in matched_resumes:
+        score = doc.metadata.get("match_score")
         resume_texts.append(
             {
                 "name": doc.metadata.get("name", "Unknown"),
                 "email": doc.metadata.get("email", "Unknown"),
                 "content": doc.page_content,
                 "skills": doc.metadata.get("skills", ""),
+                "match_score": score,
             }
         )
+        # Track score by unique key (email preferred, fallback to name)
+        unique_key = doc.metadata.get("email") or doc.metadata.get("name")
+        match_score_map[unique_key] = score
 
     ranking_prompt = f"""
 Job Description: {state['jd']}
@@ -289,7 +311,7 @@ Return only the ranking as a numbered list with name and email. Also include ski
 """
     for i, resume in enumerate(resume_texts, 1):
         ranking_prompt += (
-            f"\n{i}. Name: {resume['name']}\n   Email: {resume['email']}\n   Skills: {resume['skills']}\n   Content: {resume['content'][:400]}...\n"
+            f"\n{i}. Name: {resume['name']}\n   Email: {resume['email']}\n   Match Score: {resume['match_score']}\n   Skills: {resume['skills']}\n   Content: {resume['content'][:400]}...\n"
         )
 
     ranking_response = llm_groq.invoke(
@@ -302,6 +324,12 @@ Return only the ranking as a numbered list with name and email. Also include ski
     )
 
     ranked = agent_ranked.extract(SourceText(text_content=ranking_response.content))
+
+    # Inject the similarity score into each ranked resume (if determinable)
+    for cand in ranked.data["ranked_resumes"]:
+        unique_key = cand.get("email") or cand.get("name")
+        cand["matched_score"] = match_score_map.get(unique_key)
+
     return {
         "ranked_resumes": ranked.data["ranked_resumes"],
         "no_match": False,
@@ -360,7 +388,7 @@ async def communicator_agent(state: State):
         body_parts = []
         for i, cand in enumerate(top_resumes, 1):
             part = (
-                f"{i}. Name: {cand['name']}\n   Email: {cand['email']}\n   Skills: {', '.join(cand['skills'])}\n   Work Experience:\n     - "
+                f"{i}. Name: {cand['name']}\n   Email: {cand['email']}\n   Match Score: {cand.get('matched_score', 'N/A')}\n   Skills: {', '.join(cand['skills'])}\n   Work Experience:\n     - "
                 + "\n     - ".join(cand["work_experience"])
             )
             # Add rank reason if available
