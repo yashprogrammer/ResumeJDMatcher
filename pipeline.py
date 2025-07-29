@@ -307,7 +307,10 @@ async def ranking_agent(state: State):
 Job Description: {state['jd']}
 
 Please rank the following resumes from most relevant (1) to least relevant based on the job description.
-Return only the ranking as a numbered list with name and email. Also include skills & work experience. and a clear reason for the ranking for each resume.
+Return only the ranking as a numbered list with name and email. Also include skills & work experience. and a clear reason for the ranking for each resume with updated match score.
+
+Rule of updating match score:
+Update the match score by combining the previous match score (70% weight), skills relevance (30% weight based on overlap with job description), and work experience relevance (40% weight based on alignment with job requirements). Normalize the final score to a 0-100% range.
 """
     for i, resume in enumerate(resume_texts, 1):
         ranking_prompt += (
@@ -326,9 +329,6 @@ Return only the ranking as a numbered list with name and email. Also include ski
     ranked = agent_ranked.extract(SourceText(text_content=ranking_response.content))
 
     # Inject the similarity score into each ranked resume (if determinable)
-    for cand in ranked.data["ranked_resumes"]:
-        unique_key = cand.get("email") or cand.get("name")
-        cand["matched_score"] = match_score_map.get(unique_key)
 
     return {
         "ranked_resumes": ranked.data["ranked_resumes"],
