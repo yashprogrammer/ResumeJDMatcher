@@ -45,3 +45,6 @@ Thumbs.db
 credentials.json
 
 experiment.ipynb
+POC_langGraph.ipynb
+
+notebook/
