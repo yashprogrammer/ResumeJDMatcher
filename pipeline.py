@@ -310,7 +310,10 @@ Please rank the following resumes from most relevant (1) to least relevant based
 Return only the ranking as a numbered list with name and email. Also include skills & work experience. and a clear reason for the ranking for each resume with updated match score.
 
 Rule of updating match score:
-Update the match score by combining the previous match score (70% weight), skills relevance (30% weight based on overlap with job description), and work experience relevance (40% weight based on alignment with job requirements). Normalize the final score to a 0-100% range.
+Update the match score by combining the previous match score (100% weight), skills relevance (40% weight based on overlap with job description), and work experience relevance (50% weight based on alignment with job requirements). Normalize the final score to a 0-100% range.
+
+Always calculate the matched score and update it with previous match score.
+Never output the previous match score, only the updated one.
 """
     for i, resume in enumerate(resume_texts, 1):
         ranking_prompt += (
